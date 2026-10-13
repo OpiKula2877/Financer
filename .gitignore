@@ -1,0 +1,27 @@
+# Gradle a Android Studio (vygenerované soubory, ne zdrojáky)
+.gradle/
+.kotlin/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+.DS_Store
+
+# Výstupy sestavení
+*.apk
+*.aab
+
+# Logy z terminálu
+*.log
+build-log.txt
+test-log.txt
+androidtest-log.txt
+
+# Podepisovací klíče a jejich nastavení nikdy nepatří do repozitáře
+*.jks
+*.keystore
+keystore.properties
