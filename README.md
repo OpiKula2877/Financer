@@ -20,7 +20,7 @@ Rozhraní aplikace je v češtině.
 
 ## Stažení
 
-Zatím není k dispozici hotový APK soubor ke stažení. Repozitář obsahuje zdrojový kód, aplikaci si proto sestavte sami (viz níže) a nainstalujte ji do telefonu.
+Nejnovější verzi stáhněte z [release v1.0](https://github.com/OpiKula2877/Financer/releases/tag/v1.0): soubor `financer-1.0.apk`. APK je podepsaný debug klíčem, release podpis zatím není nastavený. Aplikaci můžete také sestavit sami ze zdrojového kódu (viz níže).
 
 Vyžaduje Android 8.0 nebo novější.
 
