@@ -1,5 +1,6 @@
 package cz.financer.ui.sales
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -25,7 +27,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -39,7 +45,9 @@ import cz.financer.ui.components.displayLabel
 import cz.financer.ui.components.formatDateTime
 import cz.financer.ui.financer
 import cz.financer.ui.project.ProjectViewModel
+import cz.financer.ui.receipt.VerifyReceiptDialog
 import cz.financer.ui.viewModelFactory
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +55,7 @@ fun SalesScreen(
     projectId: Long,
     onNewSale: (TransactionType) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenReceipt: (Long) -> Unit,
 ) {
     val app = LocalContext.current.financer()
     val viewModel: ProjectViewModel = viewModel(
@@ -57,12 +66,18 @@ fun SalesScreen(
     val clients by viewModel.clients.collectAsState()
     val project by viewModel.project.collectAsState()
     val clientNames = clients.associate { it.client.id to it.client.name }
+    var verifying by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(project?.name ?: "Platby", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    IconButton(onClick = { verifying = true }) {
+                        Icon(Icons.Filled.QrCodeScanner, contentDescription = "Ověřit účtenku")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Nastavení projektu")
                     }
@@ -109,17 +124,45 @@ fun SalesScreen(
                 }
             } else {
                 items(sales, key = { it.sale.id }) { sale ->
-                    SaleCard(sale, clientName = clientNames[sale.sale.clientId] ?: "Smazaný klient")
+                    SaleCard(
+                        sale,
+                        clientName = clientNames[sale.sale.clientId] ?: "Smazaný klient",
+                        onClick = {
+                            scope.launch {
+                                val receipt = app.repository.findReceiptByTransaction(sale.sale.id)
+                                if (receipt != null) {
+                                    onOpenReceipt(receipt.id)
+                                } else {
+                                    Toast.makeText(context, "K tomuto záznamu není účtenka.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                    )
                 }
             }
         }
     }
+
+    if (verifying) {
+        VerifyReceiptDialog(
+            onDismiss = { verifying = false },
+            onOpenStored = { receiptId ->
+                verifying = false
+                onOpenReceipt(receiptId)
+            },
+            onOpenScanned = {
+                verifying = false
+                onOpenReceipt(0L)
+            },
+        )
+    }
 }
 
 @Composable
-private fun SaleCard(sale: SaleWithItems, clientName: String) {
+private fun SaleCard(sale: SaleWithItems, clientName: String, onClick: () -> Unit) {
     val summary = sale.items.joinToString(", ") { "${it.quantity}× ${it.productNameSnapshot}" }
     Card(
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {

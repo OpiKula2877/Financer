@@ -1,6 +1,9 @@
 package cz.financer.ui.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -24,6 +29,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -48,7 +54,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cz.financer.data.PropertyDefinition
@@ -68,6 +76,7 @@ fun ProjectSettingsScreen(
     projectId: Long,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
+    onOpenReceiptSettings: () -> Unit,
 ) {
     val app = LocalContext.current.financer()
     val viewModel: ProjectViewModel = viewModel(
@@ -80,8 +89,13 @@ fun ProjectSettingsScreen(
     var name by remember { mutableStateOf("") }
     var ownerFirst by remember { mutableStateOf("") }
     var ownerLast by remember { mutableStateOf("") }
+    var taxpayer by remember { mutableStateOf("") }
+    var address by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
     var newLogo by remember { mutableStateOf<Uri?>(null) }
     var loaded by remember { mutableStateOf(false) }
+    var identificationKeyOpen by remember { mutableStateOf(false) }
+    var identificationKey by remember { mutableStateOf<String?>(null) }
 
     var addingProperty by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PropertyDefinition?>(null) }
@@ -94,6 +108,9 @@ fun ProjectSettingsScreen(
             name = current.name
             ownerFirst = current.ownerFirstName
             ownerLast = current.ownerLastName
+            taxpayer = current.taxpayerName.orEmpty()
+            address = current.address.orEmpty()
+            phone = current.phone.orEmpty()
             loaded = true
         }
     }
@@ -185,6 +202,69 @@ fun ProjectSettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("Uložit projekt")
+                }
+            }
+
+            item { SectionTitle("Účtenka") }
+            item {
+                Text(
+                    "Údaje na účtenku. Prázdné pole se na účtence nezobrazí.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = taxpayer,
+                    onValueChange = { taxpayer = it },
+                    label = { Text("Název poplatníka (vaše jméno / název firmy)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("Adresa (napište adresu, kde zrovna prodáváte)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    label = { Text("Telefon (napište zde své telefonní číslo)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                Button(
+                    onClick = { viewModel.updateReceiptHeader(taxpayer, address, phone) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Uložit údaje účtenky")
+                }
+            }
+            item {
+                OutlinedButton(onClick = onOpenReceiptSettings, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Edit, contentDescription = null)
+                    Text("  Upravit e-účtenku")
+                }
+            }
+            item {
+                OutlinedButton(
+                    onClick = {
+                        identificationKey = null
+                        identificationKeyOpen = true
+                        viewModel.loadIdentificationKey { identificationKey = it }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Identifikační klíč")
                 }
             }
 
@@ -298,7 +378,7 @@ fun ProjectSettingsScreen(
     if (confirmDeleteProject) {
         ConfirmDialog(
             title = "Smazat projekt?",
-            text = "Smažou se všichni klienti, produkty, platby i dluhy tohoto projektu. Tuto akci nelze vrátit zpět.",
+            text = "Smažou se všichni klienti, produkty, platby, dluhy i účtenky tohoto projektu. Tuto akci nelze vrátit zpět.",
             confirmLabel = "Smazat projekt",
             onConfirm = {
                 confirmDeleteProject = false
@@ -307,4 +387,59 @@ fun ProjectSettingsScreen(
             onDismiss = { confirmDeleteProject = false },
         )
     }
+
+    if (identificationKeyOpen) {
+        IdentificationKeyDialog(
+            key = identificationKey,
+            onDismiss = { identificationKeyOpen = false },
+        )
+    }
+}
+
+/**
+ * Identifikační klíč instalace. Je skrytý, dokud ho nezobrazíte. Jde jen prohlížet a kopírovat.
+ * Úpravu ani přegenerování nenabízí, jinak by přestaly jít ověřit dřívější účtenky.
+ */
+@Composable
+private fun IdentificationKeyDialog(key: String?, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var revealed by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Identifikační klíč") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Klíč šifruje účtenky a slouží k ověření BKP. Nikomu ho neukazujte. Záloha ZIP ho obsahuje, takže i soubor zálohy chraňte jako heslo.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                when {
+                    key == null -> Text("Načítání…", style = MaterialTheme.typography.bodyMedium)
+                    revealed -> SelectionContainer {
+                        Text(key, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    else -> Text("•".repeat(20), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
+                }
+                TextButton(onClick = { revealed = !revealed }, enabled = key != null) {
+                    Text(if (revealed) "Skrýt" else "Zobrazit")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    key?.let { value ->
+                        context.getSystemService(ClipboardManager::class.java)
+                            ?.setPrimaryClip(ClipData.newPlainText("Identifikační klíč", value))
+                        Toast.makeText(context, "Klíč zkopírován.", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                enabled = key != null,
+            ) {
+                Text("Kopírovat")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Zavřít") } },
+    )
 }

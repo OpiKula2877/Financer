@@ -17,10 +17,32 @@ Rozhraní aplikace je v češtině.
 * Záložka Účtárna: archiv s filtry, celkové tržby, celkový dluh, nejprodávanější produkt, tabulka dlužníků s jejich podíly, koláčový graf dluhů, sloupcový graf prodaných produktů a čárový graf prodejů po měsících
 * PDF výpis za poslední měsíc, poslední rok nebo za celou dobu, pro všechny klienty nebo jednoho klienta, s vybranými sloupci. Sdílí se přes systémový dialog pro sdílení
 * Export a import zálohy do jednoho ZIP souboru s daty a fotkami
+* Černobílé e-účtenky po každé platbě, dluhu a splacení dluhu: číslo účtenky (počítá se automaticky pro každý projekt), datum a čas, položky, celková částka, typ (platba, na dluh, splacení dluhu) a BKP s QR kódem. Údaje poplatníka (název, adresa, telefon) se zobrazí jen tehdy, když je vyplníte. Účtenku lze sdílet jako PDF
+* Úprava účtenky („Upravit e-účtenku“): zapnutí a vypnutí jednotlivých částí účtenky a nastavení dalšího čísla účtenky
+* Ověření účtenky tlačítkem v záložce Platby: zadáním BKP a identifikačního klíče, nebo naskenováním QR kódu
+
+## Účtenky, BKP a identifikační klíč
+
+Při prvním spuštění aplikace se vytvoří identifikační klíč o 50 znacích. Najdete ho v nastavení projektu v části Identifikační klíč, kde jde jen zobrazit a zkopírovat. Klíč šifruje obsah účtenek a z něj se odvozuje BKP.
+
+* BKP má 44 znaků ve tvaru `8-8-8-8-8` (například `9761F411-8D4C875F-3D0F8208-610E5AF0-D848AA8A`). Je to podpis obsahu účtenky, takže změna jakéhokoli údaje změní BKP.
+* QR kód účtenky nese BKP a zašifrovanou kopii účtenky. Na jiném telefonu s aplikací ji otevřete naskenováním a zadáním klíče. Velká účtenka se do QR kódu nevejde celá, pak QR nese jen BKP.
+* Aplikace používá standardní algoritmy z `javax.crypto` (HMAC-SHA256 a AES-256-GCM). Vlastní šifru nepoužívá.
+* Účtenka není registrace do EET. Aplikace nemá internet ani certifikát. Pokud jste plátce DPH, EET řešte s účetním.
+* Záloha ZIP obsahuje i identifikační klíč, takže soubor zálohy chraňte jako heslo. Bez klíče nejdou starší účtenky ověřit ani otevřít.
+* Kamera se žádá jen při skenování QR kódu účtenky.
+
+### Jak zobrazit účtenku z minulosti
+
+* V záložce **Platby** klepněte na záznam v seznamu Poslední záznamy. Otevře se jeho účtenka, kterou jde znovu sdílet jako PDF. Záznamy zadané ručně při zakládání klienta účtenku nemají.
+* Účtenku můžete také najít tlačítkem ikony QR kódu v horní liště záložky Platby. Zadejte BKP a identifikační klíč, nebo naskenujte QR kód.
+* Stornovaná účtenka (smazaný záznam) se označí nápisem STORNOVÁNO. Číslo se nepřečísluje.
 
 ## Stažení
 
-Nejnovější verzi stáhněte z [release v1.0](https://github.com/OpiKula2877/Financer/releases/tag/v1.0): soubor `financer-1.0.apk`. APK je podepsaný debug klíčem, release podpis zatím není nastavený. Aplikaci můžete také sestavit sami ze zdrojového kódu (viz níže).
+Nejnovější verzi stáhněte z [release v1.2.3](https://github.com/OpiKula2877/Financer/releases/tag/v1.2.3): soubor `financer.apk`. APK je podepsaný debug klíčem, release podpis zatím není nastavený. Aplikaci můžete také sestavit sami ze zdrojového kódu (viz níže).
+
+Verze 1.2.3 přidává e-účtenky. Instalace přes starší verzi zachová data, databáze se při prvním spuštění sama převede.
 
 Vyžaduje Android 8.0 nebo novější.
 
@@ -68,4 +90,4 @@ app/schemas/       exportovaná schémata Room (potřebná pro migrace)
 
 ## Stav
 
-Verze 1.0, rané vydání. Release sestavení zatím nejsou podepsaná, takže k instalaci je připravený jen debug APK. Hlášení chyb a nápady jsou vítány v záložce Issues.
+Verze 1.2.3, rané vydání. Release sestavení zatím nejsou podepsaná, takže k instalaci je připravený jen debug APK. Hlášení chyb a nápady jsou vítány v záložce Issues.

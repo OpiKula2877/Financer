@@ -18,6 +18,9 @@ interface ProjectDao {
     @Query("SELECT * FROM projects WHERE id = :id")
     fun observeById(id: Long): Flow<Project?>
 
+    @Query("SELECT * FROM projects WHERE id = :id")
+    suspend fun getById(id: Long): Project?
+
     @Query("SELECT * FROM projects")
     suspend fun getAll(): List<Project>
 
@@ -27,8 +30,18 @@ interface ProjectDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(projects: List<Project>)
 
-    @Update
-    suspend fun update(project: Project)
+    /** Jen základní údaje. Záměrně nepřepisuje číslování účtenek. */
+    @Query("UPDATE projects SET name = :name, ownerFirstName = :ownerFirstName, ownerLastName = :ownerLastName, logoPath = :logoPath WHERE id = :id")
+    suspend fun updateDetails(id: Long, name: String, ownerFirstName: String, ownerLastName: String, logoPath: String?)
+
+    @Query("UPDATE projects SET taxpayerName = :taxpayerName, address = :address, phone = :phone WHERE id = :id")
+    suspend fun updateReceiptHeader(id: Long, taxpayerName: String?, address: String?, phone: String?)
+
+    @Query("UPDATE projects SET receiptLayout = :layout WHERE id = :id")
+    suspend fun updateReceiptLayout(id: Long, layout: String?)
+
+    @Query("UPDATE projects SET nextReceiptNumber = :value WHERE id = :id")
+    suspend fun setNextReceiptNumber(id: Long, value: Long)
 
     @Query("DELETE FROM projects WHERE id = :id")
     suspend fun delete(id: Long)
@@ -64,6 +77,9 @@ interface PropertyDefinitionDao {
 interface ClientDao {
     @Query("SELECT * FROM clients WHERE projectId = :projectId ORDER BY name COLLATE NOCASE")
     fun observeForProject(projectId: Long): Flow<List<Client>>
+
+    @Query("SELECT * FROM clients WHERE id = :id")
+    suspend fun getById(id: Long): Client?
 
     @Query("SELECT * FROM clients")
     suspend fun getAll(): List<Client>
@@ -138,6 +154,10 @@ interface SaleDao {
     @Query("SELECT * FROM sale_transactions WHERE projectId = :projectId ORDER BY createdAt DESC")
     fun observeForProject(projectId: Long): Flow<List<SaleWithItems>>
 
+    @Transaction
+    @Query("SELECT * FROM sale_transactions WHERE id = :id")
+    suspend fun getWithItems(id: Long): SaleWithItems?
+
     @Query("SELECT * FROM sale_transactions")
     suspend fun getAllTransactions(): List<SaleTransaction>
 
@@ -158,4 +178,40 @@ interface SaleDao {
 
     @Query("DELETE FROM sale_transactions WHERE id = :id")
     suspend fun deleteTransaction(id: Long)
+}
+
+@Dao
+interface ReceiptDao {
+    @Query("SELECT * FROM receipts WHERE id = :id")
+    suspend fun getById(id: Long): Receipt?
+
+    @Query("SELECT * FROM receipts WHERE bkp = :bkp")
+    suspend fun findByBkp(bkp: String): List<Receipt>
+
+    @Query("SELECT * FROM receipts WHERE transactionId = :transactionId ORDER BY id DESC LIMIT 1")
+    suspend fun findByTransaction(transactionId: Long): Receipt?
+
+    @Query("SELECT * FROM receipts")
+    suspend fun getAll(): List<Receipt>
+
+    @Query("SELECT COALESCE(MAX(number), 0) FROM receipts WHERE projectId = :projectId")
+    suspend fun maxNumber(projectId: Long): Long
+
+    @Insert
+    suspend fun insert(receipt: Receipt): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(receipts: List<Receipt>)
+
+    @Query("UPDATE receipts SET cancelled = 1 WHERE transactionId = :transactionId")
+    suspend fun cancelForTransaction(transactionId: Long)
+}
+
+@Dao
+interface AppSettingsDao {
+    @Query("SELECT * FROM app_settings WHERE id = 1")
+    suspend fun get(): AppSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun save(settings: AppSettings)
 }

@@ -74,6 +74,7 @@ fun NewSaleScreen(
     projectId: Long,
     type: TransactionType,
     onDone: () -> Unit,
+    onIssued: (Long) -> Unit,
 ) {
     val app = LocalContext.current.financer()
     val viewModel: ProjectViewModel = viewModel(
@@ -138,7 +139,7 @@ fun NewSaleScreen(
                         Button(
                             onClick = {
                                 val id = clientId ?: return@Button
-                                viewModel.recordSale(id, type, date, lines, onRecorded = onDone)
+                                viewModel.recordSale(id, type, date, lines, onIssued = onIssued)
                             },
                             enabled = selectedClient != null && lines.isNotEmpty(),
                             modifier = Modifier.weight(1f),

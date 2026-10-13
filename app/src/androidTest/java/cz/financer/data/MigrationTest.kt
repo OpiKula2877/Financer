@@ -47,6 +47,31 @@ class MigrationTest {
         db.close()
     }
 
+    /** Verze 2 → 3: projekt dostane prázdné údaje účtenky a číslování od 1. Data zůstanou. */
+    @Test
+    fun migrate2To3_keepsProjectsAndStartsReceiptNumbering() {
+        helper.createDatabase(DB_NAME, 2).apply {
+            execSQL("INSERT INTO projects (id, name, ownerFirstName, ownerLastName, logoPath, createdAt) VALUES (1, 'Projekt', 'Jan', 'Novák', NULL, 0)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 3, true, MIGRATION_2_3)
+
+        db.query("SELECT name, taxpayerName, nextReceiptNumber, receiptLayout FROM projects WHERE id = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("Projekt", cursor.getString(0))
+            assertNull(cursor.getString(1))
+            assertEquals(1L, cursor.getLong(2))
+            assertNull(cursor.getString(3))
+        }
+        // Účtenka se musí dát uložit s BKP a zašifrovaným obsahem.
+        db.execSQL(
+            "INSERT INTO receipts (projectId, transactionId, number, type, bkp, payload, createdAt, cancelled) " +
+                "VALUES (1, NULL, 1, 'PAYMENT', '0000000A-0000000B-0000000C-0000000D-0000000E', 'x', 0, 0)",
+        )
+        db.close()
+    }
+
     private fun android.database.Cursor.getLongOrNull(index: Int): Long? =
         if (isNull(index)) null else getLong(index)
 

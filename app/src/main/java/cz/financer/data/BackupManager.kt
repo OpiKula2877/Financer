@@ -13,8 +13,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Záloha = ZIP soubor s data.json (všechny tabulky) a složkou images/ s obrázky.
- * Import nahradí všechna data v aplikaci obsahem zálohy.
+ * Záloha = ZIP soubor s data.json (všechny tabulky, včetně účtenek a identifikačního klíče)
+ * a složkou images/ s obrázky. Kdo má soubor, má i klíč, proto ho chraňte jako heslo.
+ * Import nahradí všechna data v aplikaci obsahem zálohy. Zálohy verze 1 jdou načíst.
  */
 class BackupManager(
     private val context: Context,
@@ -30,9 +31,11 @@ class BackupManager(
         val products = database.productDao().getAll()
         val sales = database.saleDao().getAllTransactions()
         val items = database.saleDao().getAllItems()
+        val receipts = database.receiptDao().getAll()
+        val settings = database.appSettingsDao().get()
 
         val root = JSONObject()
-            .put("version", 1)
+            .put("version", 2)
             .put("projects", JSONArray(projects.map { p ->
                 JSONObject()
                     .put("id", p.id)
@@ -41,6 +44,11 @@ class BackupManager(
                     .put("ownerLastName", p.ownerLastName)
                     .put("logo", fileName(p.logoPath))
                     .put("createdAt", p.createdAt)
+                    .put("taxpayerName", p.taxpayerName ?: JSONObject.NULL)
+                    .put("address", p.address ?: JSONObject.NULL)
+                    .put("phone", p.phone ?: JSONObject.NULL)
+                    .put("nextReceiptNumber", p.nextReceiptNumber)
+                    .put("receiptLayout", p.receiptLayout ?: JSONObject.NULL)
             }))
             .put("properties", JSONArray(definitions.map { d ->
                 JSONObject().put("id", d.id).put("projectId", d.projectId).put("name", d.name).put("position", d.position)
@@ -79,6 +87,19 @@ class BackupManager(
                     .put("unitPriceHalire", i.unitPriceHalire)
                     .put("quantity", i.quantity)
             }))
+            .put("receipts", JSONArray(receipts.map { r ->
+                JSONObject()
+                    .put("id", r.id)
+                    .put("projectId", r.projectId)
+                    .put("transactionId", r.transactionId ?: JSONObject.NULL)
+                    .put("number", r.number)
+                    .put("type", r.type.name)
+                    .put("bkp", r.bkp)
+                    .put("payload", r.payload)
+                    .put("createdAt", r.createdAt)
+                    .put("cancelled", r.cancelled)
+            }))
+            .put("settings", JSONObject().put("identificationKey", settings?.identificationKey ?: JSONObject.NULL))
 
         val imagePaths = (projects.map { it.logoPath } + products.map { it.imagePath }).filterNotNull()
 
@@ -137,6 +158,11 @@ class BackupManager(
                 ownerLastName = o.getString("ownerLastName"),
                 logoPath = imagePath(o.str("logo")),
                 createdAt = o.getLong("createdAt"),
+                taxpayerName = o.str("taxpayerName"),
+                address = o.str("address"),
+                phone = o.str("phone"),
+                nextReceiptNumber = o.optLong("nextReceiptNumber", 1),
+                receiptLayout = o.str("receiptLayout"),
             )
         })
         database.propertyDefinitionDao().insertAll(root.array("properties") { o ->
@@ -194,6 +220,23 @@ class BackupManager(
                 quantity = o.getInt("quantity"),
             )
         })
+        database.receiptDao().insertAll(root.array("receipts") { o ->
+            Receipt(
+                id = o.getLong("id"),
+                projectId = o.getLong("projectId"),
+                transactionId = o.lng("transactionId"),
+                number = o.getLong("number"),
+                type = TransactionType.valueOf(o.getString("type")),
+                bkp = o.getString("bkp"),
+                payload = o.getString("payload"),
+                createdAt = o.getLong("createdAt"),
+                cancelled = o.optBoolean("cancelled", false),
+            )
+        })
+        // Záloha verze 1 nemá klíč. Pak se zachová ten, který už v telefonu je.
+        root.optJSONObject("settings")?.str("identificationKey")?.let { key ->
+            database.appSettingsDao().save(AppSettings(identificationKey = key))
+        }
     }
 
     private fun fileName(path: String?): Any = path?.let { File(it).name } ?: JSONObject.NULL

@@ -12,6 +12,7 @@ import cz.financer.data.SaleWithItems
 import cz.financer.data.TransactionType
 import cz.financer.domain.CartLine
 import cz.financer.domain.SaleCalculator
+import cz.financer.receipt.ReceiptLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -90,14 +91,7 @@ class ProjectViewModel(
             val logoPath = newLogo?.let { uri ->
                 withContext(Dispatchers.IO) { app.images.saveSquare(uri) }?.also { app.images.delete(current.logoPath) }
             } ?: current.logoPath
-            repository.updateProject(
-                current.copy(
-                    name = name.trim(),
-                    ownerFirstName = ownerFirstName.trim(),
-                    ownerLastName = ownerLastName.trim(),
-                    logoPath = logoPath,
-                ),
-            )
+            repository.updateProjectDetails(current.id, name, ownerFirstName, ownerLastName, logoPath)
         }
     }
 
@@ -106,6 +100,25 @@ class ProjectViewModel(
             repository.deleteProject(projectId)
             onDeleted()
         }
+    }
+
+    // Účtenka
+
+    fun updateReceiptHeader(taxpayerName: String, address: String, phone: String) {
+        viewModelScope.launch { repository.updateReceiptHeader(projectId, taxpayerName, address, phone) }
+    }
+
+    fun saveReceiptLayout(layout: ReceiptLayout) {
+        viewModelScope.launch { repository.updateReceiptLayout(projectId, layout) }
+    }
+
+    /** Vrací chybu, nebo null. Číslo nesmí být menší než nejvyšší vydané číslo. */
+    fun setNextReceiptNumber(value: Long, onResult: (String?) -> Unit) {
+        viewModelScope.launch { onResult(repository.setNextReceiptNumber(projectId, value)) }
+    }
+
+    fun loadIdentificationKey(onLoaded: (String) -> Unit) {
+        viewModelScope.launch { onLoaded(repository.identificationKey()) }
     }
 
     // Vlastnosti klienta
@@ -205,28 +218,32 @@ class ProjectViewModel(
 
     // Platby a dluhy
 
+    /** Zapíše platbu nebo dluh, vystaví k němu účtenku a předá její ID. */
     fun recordSale(
         clientId: Long,
         type: TransactionType,
         createdAt: Long,
         lines: List<CartLine>,
-        onRecorded: () -> Unit,
+        onIssued: (Long) -> Unit,
     ) {
         viewModelScope.launch {
-            repository.recordSale(projectId, clientId, type, createdAt, lines)
-            onRecorded()
+            val transactionId = repository.recordSale(projectId, clientId, type, createdAt, lines)
+            onIssued(repository.issueReceipt(transactionId))
         }
     }
 
     /**
      * Splacení dluhu. Vrací chybovou zprávu, nebo null pokud je vše v pořádku.
-     * Částka nesmí být vyšší než aktuální dluh klienta.
+     * Částka nesmí být vyšší než aktuální dluh klienta. Vystaví účtenku a předá její ID.
      */
-    fun recordRepayment(clientId: Long, amountHalire: Long, createdAt: Long): String? {
+    fun recordRepayment(clientId: Long, amountHalire: Long, createdAt: Long, onIssued: (Long) -> Unit): String? {
         val debt = SaleCalculator.debtOf(clientId, sales.value)
         if (amountHalire <= 0) return "Částka musí být větší než nula."
         if (amountHalire > debt) return "Částka je vyšší než dluh klienta."
-        viewModelScope.launch { repository.recordRepayment(projectId, clientId, createdAt, amountHalire) }
+        viewModelScope.launch {
+            val transactionId = repository.recordRepayment(projectId, clientId, createdAt, amountHalire)
+            onIssued(repository.issueReceipt(transactionId))
+        }
         return null
     }
 

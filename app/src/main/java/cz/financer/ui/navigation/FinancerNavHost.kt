@@ -29,9 +29,11 @@ import cz.financer.ui.clients.ClientsScreen
 import cz.financer.ui.products.ProductEditScreen
 import cz.financer.ui.products.ProductsScreen
 import cz.financer.ui.projects.ProjectsScreen
+import cz.financer.ui.receipt.ReceiptScreen
 import cz.financer.ui.sales.NewSaleScreen
 import cz.financer.ui.sales.SalesScreen
 import cz.financer.ui.settings.ProjectSettingsScreen
+import cz.financer.ui.settings.ReceiptLayoutScreen
 
 private data class ProjectTab(
     val label: String,
@@ -99,10 +101,12 @@ fun FinancerNavHost() {
             }
 
             composable(Routes.CLIENT_DETAIL, arguments = projectArgs + clientArgs) { backStack ->
+                val projectId = backStack.projectId()
                 ClientDetailScreen(
-                    projectId = backStack.projectId(),
+                    projectId = projectId,
                     clientId = backStack.arguments?.getLong(Routes.ARG_CLIENT) ?: 0L,
                     onBack = { navController.popBackStack() },
+                    onReceipt = { receiptId -> navController.navigate(Routes.receipt(projectId, receiptId)) },
                 )
             }
 
@@ -138,15 +142,23 @@ fun FinancerNavHost() {
                     projectId = projectId,
                     onNewSale = { type -> navController.navigate(Routes.saleNew(projectId, type.name)) },
                     onOpenSettings = { navController.navigate(Routes.settings(projectId)) },
+                    onOpenReceipt = { receiptId -> navController.navigate(Routes.receipt(projectId, receiptId)) },
                 )
             }
 
             composable(Routes.SALE_NEW, arguments = projectArgs + typeArgs) { backStack ->
+                val projectId = backStack.projectId()
                 val type = TransactionType.valueOf(backStack.arguments?.getString(Routes.ARG_TYPE) ?: "PAYMENT")
                 NewSaleScreen(
-                    projectId = backStack.projectId(),
+                    projectId = projectId,
                     type = type,
                     onDone = { navController.popBackStack() },
+                    onIssued = { receiptId ->
+                        // Po uložení se formulář zavře, aby zpět nevedl zpátky do prázdného formuláře.
+                        navController.navigate(Routes.receipt(projectId, receiptId)) {
+                            popUpTo(Routes.SALE_NEW) { inclusive = true }
+                        }
+                    },
                 )
             }
 
@@ -159,14 +171,30 @@ fun FinancerNavHost() {
             }
 
             composable(Routes.SETTINGS, arguments = projectArgs) { backStack ->
+                val projectId = backStack.projectId()
                 ProjectSettingsScreen(
-                    projectId = backStack.projectId(),
+                    projectId = projectId,
                     onBack = { navController.popBackStack() },
                     onDeleted = {
                         navController.navigate(Routes.PROJECTS) {
                             popUpTo(Routes.PROJECTS) { inclusive = true }
                         }
                     },
+                    onOpenReceiptSettings = { navController.navigate(Routes.receiptSettings(projectId)) },
+                )
+            }
+
+            composable(Routes.RECEIPT_SETTINGS, arguments = projectArgs) { backStack ->
+                ReceiptLayoutScreen(
+                    projectId = backStack.projectId(),
+                    onBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Routes.RECEIPT, arguments = projectArgs + receiptArgs) { backStack ->
+                ReceiptScreen(
+                    receiptId = backStack.arguments?.getLong(Routes.ARG_RECEIPT) ?: 0L,
+                    onDone = { navController.popBackStack() },
                 )
             }
         }
@@ -187,4 +215,8 @@ private val productArgs = listOf(
 
 private val typeArgs = listOf(
     navArgument(Routes.ARG_TYPE) { type = NavType.StringType },
+)
+
+private val receiptArgs = listOf(
+    navArgument(Routes.ARG_RECEIPT) { type = NavType.LongType },
 )

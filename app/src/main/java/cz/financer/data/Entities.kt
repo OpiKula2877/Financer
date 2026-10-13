@@ -17,6 +17,14 @@ data class Project(
     val ownerLastName: String,
     val logoPath: String?,
     val createdAt: Long,
+    /** Údaje na účtence. Prázdná hodnota se na účtence nezobrazí. */
+    val taxpayerName: String? = null,
+    val address: String? = null,
+    val phone: String? = null,
+    /** Číslo, které dostane příští účtenka v tomto projektu. */
+    @ColumnInfo(defaultValue = "1") val nextReceiptNumber: Long = 1,
+    /** Přepínače účtenky jako JSON. Null znamená výchozí nastavení. */
+    val receiptLayout: String? = null,
 )
 
 /**
@@ -172,4 +180,40 @@ data class SaleItem(
     val productNameSnapshot: String,
     val unitPriceHalire: Long,
     val quantity: Int,
+)
+
+/**
+ * Vystavená účtenka. Obsah je v [payload] zašifrovaný klíčem instalace,
+ * [bkp] je podpis tohoto obsahu. Účtenka zůstává v číslování i po smazání záznamu (storno).
+ */
+@Entity(
+    tableName = "receipts",
+    foreignKeys = [
+        ForeignKey(
+            entity = Project::class,
+            parentColumns = ["id"],
+            childColumns = ["projectId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["projectId", "number"], unique = true), Index("bkp")],
+)
+data class Receipt(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val projectId: Long,
+    /** Bez cizího klíče, aby účtenka přežila smazání záznamu. */
+    val transactionId: Long?,
+    val number: Long,
+    val type: TransactionType,
+    val bkp: String,
+    val payload: String,
+    val createdAt: Long,
+    @ColumnInfo(defaultValue = "0") val cancelled: Boolean = false,
+)
+
+/** Nastavení celé instalace. Vždy jediný řádek s id 1. */
+@Entity(tableName = "app_settings")
+data class AppSettings(
+    @PrimaryKey val id: Long = 1,
+    val identificationKey: String,
 )

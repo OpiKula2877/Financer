@@ -12,8 +12,10 @@ import androidx.room.RoomDatabase
         Product::class,
         SaleTransaction::class,
         SaleItem::class,
+        Receipt::class,
+        AppSettings::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class FinancerDatabase : RoomDatabase() {
@@ -23,4 +25,6 @@ abstract class FinancerDatabase : RoomDatabase() {
     abstract fun clientPropertyValueDao(): ClientPropertyValueDao
     abstract fun productDao(): ProductDao
     abstract fun saleDao(): SaleDao
+    abstract fun receiptDao(): ReceiptDao
+    abstract fun appSettingsDao(): AppSettingsDao
 }

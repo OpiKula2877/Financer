@@ -1,8 +1,13 @@
 package cz.financer.data
 
+import androidx.room.withTransaction
 import cz.financer.domain.CartLine
 import cz.financer.domain.SaleCalculator
 import cz.financer.image.ImageStore
+import cz.financer.receipt.ReceiptBuilder
+import cz.financer.receipt.ReceiptData
+import cz.financer.receipt.ReceiptLayout
+import cz.financer.security.ReceiptCrypto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -18,6 +23,8 @@ class FinancerRepository(
     private val clientValues = database.clientPropertyValueDao()
     private val products = database.productDao()
     private val sales = database.saleDao()
+    private val receipts = database.receiptDao()
+    private val appSettings = database.appSettingsDao()
 
     // Projekty
 
@@ -40,7 +47,14 @@ class FinancerRepository(
         ),
     )
 
-    suspend fun updateProject(project: Project) = projects.update(project)
+    /** Upraví jen název, majitele a logo. Záměrně nesahá na číslování účtenek. */
+    suspend fun updateProjectDetails(
+        projectId: Long,
+        name: String,
+        ownerFirstName: String,
+        ownerLastName: String,
+        logoPath: String?,
+    ) = projects.updateDetails(projectId, name.trim(), ownerFirstName.trim(), ownerLastName.trim(), logoPath)
 
     /** Smaže projekt i všechny jeho obrázky. Záznamy v databázi se smažou kaskádově. */
     suspend fun deleteProject(projectId: Long) {
@@ -162,7 +176,7 @@ class FinancerRepository(
 
     /**
      * Zapíše platbu (PAYMENT) nebo dluh (DEBT) se seznamem produktů.
-     * Cena se spočítá z košíku, položky si uloží snapshot názvu a ceny.
+     * Cena se spočítá z košíku, položky si uloží snapshot názvu a ceny. Vrací ID transakce.
      */
     suspend fun recordSale(
         projectId: Long,
@@ -199,9 +213,9 @@ class FinancerRepository(
     }
 
     /** Splacení dluhu libovolnou částkou. Kontrolu, že částka nepřesahuje dluh, dělá ProjectViewModel. */
-    suspend fun recordRepayment(projectId: Long, clientId: Long, createdAt: Long, amountHalire: Long) {
+    suspend fun recordRepayment(projectId: Long, clientId: Long, createdAt: Long, amountHalire: Long): Long {
         require(amountHalire > 0) { "Částka musí být větší než nula" }
-        sales.insertTransaction(
+        return sales.insertTransaction(
             SaleTransaction(
                 projectId = projectId,
                 clientId = clientId,
@@ -212,7 +226,11 @@ class FinancerRepository(
         )
     }
 
-    suspend fun deleteSale(transactionId: Long) = sales.deleteTransaction(transactionId)
+    /** Smaže záznam. Jeho účtenka zůstane v číslování a označí se jako stornovaná. */
+    suspend fun deleteSale(transactionId: Long) = database.withTransaction {
+        receipts.cancelForTransaction(transactionId)
+        sales.deleteTransaction(transactionId)
+    }
 
     /** Aktuální dluh klienta jako tok hodnot, pro profil klienta. */
     fun observeDebt(projectId: Long, clientId: Long): Flow<Long> =
@@ -223,4 +241,72 @@ class FinancerRepository(
         combine(observeClients(projectId), observeSales(projectId)) { clientList, saleList ->
             clientList.map { it to SaleCalculator.debtOf(it.id, saleList) }
         }
+
+    // Účtenky
+
+    /** Údaje na účtence. Prázdné hodnoty se uloží jako null a na účtence se nezobrazí. */
+    suspend fun updateReceiptHeader(projectId: Long, taxpayerName: String, address: String, phone: String) =
+        projects.updateReceiptHeader(
+            projectId,
+            taxpayerName.trim().ifEmpty { null },
+            address.trim().ifEmpty { null },
+            phone.trim().ifEmpty { null },
+        )
+
+    suspend fun updateReceiptLayout(projectId: Long, layout: ReceiptLayout) =
+        projects.updateReceiptLayout(projectId, layout.toJson())
+
+    /** Nastaví číslo další účtenky. Vrací chybu, nebo null, pokud je nastavení v pořádku. */
+    suspend fun setNextReceiptNumber(projectId: Long, value: Long): String? = database.withTransaction {
+        val minimum = receipts.maxNumber(projectId) + 1
+        if (value < minimum) return@withTransaction "Další číslo musí být alespoň $minimum."
+        projects.setNextReceiptNumber(projectId, value)
+        null
+    }
+
+    /** Identifikační klíč instalace. Při prvním použití se vytvoří a uloží. */
+    suspend fun identificationKey(): String = database.withTransaction { identificationKeyInTransaction() }
+
+    private suspend fun identificationKeyInTransaction(): String =
+        appSettings.get()?.identificationKey
+            ?: ReceiptCrypto.generateKey().also { appSettings.save(AppSettings(identificationKey = it)) }
+
+    /**
+     * Vystaví účtenku k zapsanému záznamu. Přidělí číslo, zašifruje obsah a podepíše ho BKP.
+     * Vrací ID účtenky.
+     */
+    suspend fun issueReceipt(transactionId: Long): Long = database.withTransaction {
+        val sale = sales.getWithItems(transactionId) ?: error("Záznam neexistuje.")
+        val project = projects.getById(sale.sale.projectId) ?: error("Projekt neexistuje.")
+        val clientName = clients.getById(sale.sale.clientId)?.name
+        val number = project.nextReceiptNumber
+        val json = ReceiptBuilder.build(project, sale, clientName, number).toJson()
+        val key = identificationKeyInTransaction()
+        projects.setNextReceiptNumber(project.id, number + 1)
+        receipts.insert(
+            Receipt(
+                projectId = project.id,
+                transactionId = transactionId,
+                number = number,
+                type = sale.sale.type,
+                bkp = ReceiptCrypto.bkp(key, json),
+                payload = ReceiptCrypto.encrypt(key, json),
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun getReceipt(receiptId: Long): Receipt? = receipts.getById(receiptId)
+
+    suspend fun findReceiptByBkp(bkp: String): Receipt? = receipts.findByBkp(bkp).firstOrNull()
+
+    /** Účtenka k záznamu. Ručně zadané záznamy a záznamy bez účtenky vrací null. */
+    suspend fun findReceiptByTransaction(transactionId: Long): Receipt? = receipts.findByTransaction(transactionId)
+
+    /** Rozšifruje účtenku klíčem a ověří, že její obsah odpovídá BKP. Jinak vyhodí výjimku. */
+    fun openReceipt(key: String, bkp: String, payload: String): ReceiptData {
+        val json = ReceiptCrypto.decrypt(key, payload)
+        check(ReceiptCrypto.bkp(key, json) == bkp) { "BKP neodpovídá obsahu účtenky." }
+        return ReceiptData.fromJson(json)
+    }
 }

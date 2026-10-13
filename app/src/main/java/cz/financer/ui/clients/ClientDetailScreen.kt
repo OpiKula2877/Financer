@@ -64,6 +64,7 @@ fun ClientDetailScreen(
     projectId: Long,
     clientId: Long,
     onBack: () -> Unit,
+    onReceipt: (Long) -> Unit,
 ) {
     val app = LocalContext.current.financer()
     val viewModel: ProjectViewModel = viewModel(
@@ -256,7 +257,7 @@ fun ClientDetailScreen(
         RepaymentDialog(
             row = row,
             onConfirm = { amount, date ->
-                viewModel.recordRepayment(row.client.id, amount, date)
+                viewModel.recordRepayment(row.client.id, amount, date, onIssued = onReceipt)
             },
             onDismiss = { repaying = false },
         )
